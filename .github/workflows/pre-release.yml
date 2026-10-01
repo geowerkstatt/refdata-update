@@ -1,0 +1,86 @@
+name: Pre-release
+
+on:
+  push:
+    branches:
+      - main
+    # Documentation alone changes nothing in the image.
+    paths-ignore:
+      - '**.md'
+      - LICENSE
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pre-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  pre-release:
+    name: Build and push the image and create a GitHub pre-release
+    # A manual run from another branch would publish a version and a pre-release for unmerged code.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set environment variables
+        run: |
+          echo "VERSION=$(cat VERSION).$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=$REGISTRY/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+          echo "COMMITTED_AT=$(git show -s --format=%cI HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the test stage, which runs test.sh
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: test
+
+      - name: Collect Docker image metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.created=${{ env.COMMITTED_AT }}
+            org.opencontainers.image.version=v${{ env.VERSION }}
+            org.opencontainers.image.maintainer=GeoWerkstatt GmbH <support@geowerkstatt.ch>
+          tags: |
+            type=edge
+            type=semver,pattern=v{{version}},value=${{ env.VERSION }}
+
+      - name: Log in to the GitHub container registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "v$VERSION" --title "$VERSION" --prerelease --target "$GITHUB_SHA" --generate-notes

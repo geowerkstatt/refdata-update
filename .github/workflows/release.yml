@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: Tag of the pre-release to promote, e.g. v1.0.7
+        required: true
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  retag:
+    name: Tag the released image as latest and v<major>
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - name: Set environment variables
+        env:
+          TAG_NAME: ${{ github.event.inputs.TAG_NAME || github.event.release.tag_name }}
+        run: |
+          [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Not a release tag: $TAG_NAME" >&2; exit 1; }
+          version="${TAG_NAME#v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "MAJOR=${version%%.*}" >> "$GITHUB_ENV"
+          echo "IMAGE_NAME=$REGISTRY/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to the GitHub container registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # imagetools keeps the manifest with its SBOM and provenance, unlike pull, tag and push.
+      - name: Tag the image
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE_NAME:latest" \
+            --tag "$IMAGE_NAME:v$MAJOR" \
+            "$IMAGE_NAME:v$VERSION"

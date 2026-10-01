@@ -1,0 +1,37 @@
+# Sources of the reference data, see README.md. Each source is downloaded once per run.
+# A plain file names its destination; an archive lists the entries to unpack under extract.
+# Destinations are relative to the refdata directory and match the <path> entries of ilidata.xml.
+
+# Federal data sets, the INTERLIS assets of the STAC collections on data.geo.admin.ch (swisstopo).
+
+# ch.swisstopo.fixpunkte-lfp1, Geobasisdaten ID 53
+- source: https://data.geo.admin.ch/ch.swisstopo.fixpunkte-lfp1/fixpunkte-lfp1/fixpunkte-lfp1_2056_5728.xtf.zip
+  extract:
+    - entry: FixpunkteLV_V1_0.xtf
+      destination: dmav_V1_1/refdata/FixpunkteLV_V1_0_LFP1.xtf
+
+# ch.swisstopo.fixpunkte-hfp1, Geobasisdaten ID 53, left out on purpose: swisstopo publishes it with the same basket
+# id as LFP1, so ilivalidator refuses to load both ("BID ... already exists"). Until that is settled with the source,
+# the HFP1 file of the DMAV repository stays in place.
+# - source: https://data.geo.admin.ch/ch.swisstopo.fixpunkte-hfp1/fixpunkte-hfp1/fixpunkte-hfp1_2056_5728.xtf.zip
+#   extract:
+#     - entry: FixpunkteLV_V1_0.xtf
+#       destination: dmav_V1_1/refdata/FixpunkteLV_V1_0_HFP1.xtf
+
+# ch.swisstopo.hoheitsgrenze-landesvermessung, Geobasisdaten ID 39
+- source: https://data.geo.admin.ch/ch.swisstopo.hoheitsgrenze-landesvermessung/hoheitsgrenze-landesvermessung/hoheitsgrenze-landesvermessung_2056.xtf.zip
+  extract:
+    - entry: hoheitsgrenze-landesvermessung_2056.xtf
+      destination: dmav_V1_1/refdata/hoheitsgrenze-landesvermessung_2056.xtf
+
+# ch.swisstopo-vd.ortschaftenverzeichnis_plz, Geobasisdaten ID 181, about 380 MB unpacked
+- source: https://data.geo.admin.ch/ch.swisstopo-vd.ortschaftenverzeichnis_plz/ortschaftenverzeichnis_plz/ortschaftenverzeichnis_plz_2056.xtf.zip
+  extract:
+    - entry: AMTOVZ_INTERLIS24/OfficialIndexOfLocalities_V1_0.xtf
+      destination: dmav_V1_1/refdata/OfficialIndexOfLocalities_V1_0.xtf
+
+# Still to be named by the domain side. Fixpunkte AV Kategorie 2 are cantonal and offered through geodienste.ch.
+# - source: <URL>
+#   destination: dmav_V1_1/refdata/fpds2_BE.xtf
+# - source: <URL>
+#   destination: dmav_V1_1/refdata/Gemeinden95_2_4.xtf
