@@ -19,9 +19,25 @@ echo "$second" > "$www/inner/second.xtf"
 echo 'readme' > "$www/inner/readme.txt"
 (cd "$www" && zip -q archive.zip inner/first.xtf inner/second.xtf inner/readme.txt && rm -r inner)
 for f in a/replaced.xtf a/kept-on-404.xtf a/kept-on-invalid.xtf a/kept-on-missing-entry.xtf a/kept-on-scheme.xtf \
-  a/kept-on-both.xtf; do
+  a/kept-on-both.xtf a/kept-on-unindexed.xtf; do
   echo "$old" > "$root/$f"
 done
+
+# The repository index, nested like DatasetIdx16 and with CRLF line endings like the sources file below. It lists
+# every destination of the test except a/kept-on-unindexed.xtf and b/unindexed.xtf.
+{
+  echo '<?xml version="1.0" encoding="UTF-8"?>'
+  echo '<TRANSFER xmlns="http://www.interlis.ch/INTERLIS2.3"><DATASECTION><DatasetIdx16.DataIndex BID="b1">'
+  tid=0
+  for path in a/replaced.xtf a/kept-on-404.xtf a/kept-on-invalid.xtf b/first.xtf b/second.xtf \
+    a/kept-on-missing-entry.xtf a/kept-on-scheme.xtf a/kept-on-both.xtf new/created.xtf; do
+    tid=$((tid + 1))
+    echo "<DatasetIdx16.DataIndex.DatasetMetadata TID=\"$tid\"><id>dataset$tid</id><files><DatasetIdx16.DataFile>"
+    echo "<file><DatasetIdx16.File><path>$path</path></DatasetIdx16.File></file></DatasetIdx16.DataFile></files>"
+    echo '</DatasetIdx16.DataIndex.DatasetMetadata>'
+  done
+  echo '</DatasetIdx16.DataIndex></DATASECTION></TRANSFER>'
+} | sed 's/$/\r/' > "$root/ilidata.xml"
 
 base=http://127.0.0.1:8099
 # Written with CRLF line endings, as a sources file edited on Windows would be.
@@ -43,6 +59,8 @@ sed 's/$/\r/' > "$work/sources.yaml" << EOF
       destination: a/kept-on-missing-entry.xtf
     - entry: inner/first.xtf
       destination: /absolute.xtf
+    - entry: inner/second.xtf
+      destination: b/unindexed.xtf
 - source: $base/good.xtf
   destination: ../escape.xtf
 - source: ftp://127.0.0.1/good.xtf
@@ -54,6 +72,8 @@ sed 's/$/\r/' > "$work/sources.yaml" << EOF
       destination: a/kept-on-both.xtf
 - source: $base/good.xtf
   destination: new/created.xtf
+- source: $base/good.xtf
+  destination: a/kept-on-unindexed.xtf
 EOF
 
 httpd -f -p 127.0.0.1:8099 -h "$www" &
@@ -87,6 +107,8 @@ expect a/kept-on-missing-entry.xtf "$old"
 expect a/kept-on-scheme.xtf "$old"
 expect a/kept-on-both.xtf "$old"
 expect new/created.xtf "$new"
+expect a/kept-on-unindexed.xtf "$old"
+[ ! -e "$root/b/unindexed.xtf" ] || fail "b/unindexed.xtf was unpacked although ilidata.xml does not list it"
 [ ! -e "$work/escape.xtf" ] || fail "../escape.xtf was written outside the root"
 [ ! -e /absolute.xtf ] || fail "/absolute.xtf was written outside the root"
 [ "$status" -eq 1 ] || fail "exit code: expected 1, got $status"
@@ -100,6 +122,13 @@ printf -- '- source: %s/good.xtf\n  destination: a/replaced.xtf\n' "$base" > "$w
 REFDATA_SOURCES="$work/good.yaml" REFDATA_ROOT="$root" REFDATA_STAMP="$work/stamp" refdata-update > /dev/null ||
   fail "a run without failures exited with an error"
 [ -e "$work/stamp" ] || fail "a run without failures did not touch the success stamp"
+
+mkdir "$work/bare"
+status=0
+REFDATA_SOURCES="$work/good.yaml" REFDATA_ROOT="$work/bare" REFDATA_STAMP="$work/bare-stamp" refdata-update > /dev/null ||
+  status=$?
+[ "$status" -eq 1 ] || fail "a root without ilidata.xml: expected exit code 1, got $status"
+[ ! -e "$work/bare/a/replaced.xtf" ] || fail "a root without ilidata.xml received a/replaced.xtf"
 
 if [ "$failures" -gt 0 ]; then
   echo "refdata-update test: $failures failure(s)"

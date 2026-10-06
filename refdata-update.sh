@@ -3,9 +3,9 @@
 # replaced by a complete file that looks like an INTERLIS transfer, renamed over the old one, so a failed fetch leaves
 # the last state in place.
 # shortcut: atomic per file, not across the set, so a validation running meanwhile may see old and new files mixed.
-# shortcut: the model cache of the ilitools-wrapper is not reset afterwards, that operation does not exist yet
-# (geowerkstatt/geopilot#1043). Files in a subfolder are fetched fresh by every run today only because of
-# claeis/ili2c#165.
+# shortcut: over a URL, the ilitools-wrapper keeps cached copies after a run and has no reset
+# (geowerkstatt/geopilot#1043); only claeis/ili2c#165 makes it fetch files in a subfolder fresh every run. A repository
+# it offers from a directory (geowerkstatt/geopilot#1075) is read in place and needs neither.
 set -u
 
 # Overridable so test.sh can run against its own directories.
@@ -30,6 +30,12 @@ field() {
 
 is_relative_path() {
   case "$1" in '' | /* | .. | ../* | */.. | */../*) return 1 ;; esac
+}
+
+# ilivalidator reaches reference data only through an id in the repository index, so a file at a path the index does
+# not list would be fetched but never read.
+is_indexed() {
+  printf '%s\n' "$indexed" | grep -Fxq -- "$1"
 }
 
 is_transfer() {
@@ -64,6 +70,10 @@ refresh_file() {
   source=$1 destination=$2
   if ! is_relative_path "$destination"; then
     kept "${destination:-source $source}" "the destination must be a relative path below $root"
+    return
+  fi
+  if ! is_indexed "$destination"; then
+    kept "$destination" "the ilidata.xml in $root lists no such path"
     return
   fi
   part=$(part_of "$destination") || { kept "$destination" "could not create its folder"; return; }
@@ -101,6 +111,8 @@ refresh_archive() {
     j=$((j + 1))
     if ! is_relative_path "$destination"; then
       kept "${destination:-entry $entry}" "the destination must be a relative path below $root"
+    elif ! is_indexed "$destination"; then
+      kept "$destination" "the ilidata.xml in $root lists no such path"
     elif [ -z "$entry" ] || ! has_entry "$archive" "$entry"; then
       kept "$destination" "$source holds no entry '$entry'"
     elif ! part=$(part_of "$destination"); then
@@ -139,6 +151,10 @@ if [ ! -r "$sources" ]; then
 fi
 if ! yq -e 'tag == "!!seq"' "$sources" > /dev/null 2>&1; then
   log "$sources is not a YAML list of sources"
+  exit 1
+fi
+if ! indexed=$(yq -p xml -o y -r '.. | select(key == "path")' "$root/ilidata.xml" 2> /dev/null); then
+  log "no readable ilidata.xml in $root, which must be the root of the repository the reference data belong to"
   exit 1
 fi
 
