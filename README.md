@@ -15,20 +15,19 @@ services:
       TZ: Europe/Zurich
       REFDATA_UPDATE_SCHEDULE: 0 1 * * *
     volumes:
-      - ./refdata:/refdata
+      - ./repositories/dmav@0.1.1:/refdata
       - ./refdata-sources.yaml:/config/sources.yaml:ro
 
-  # Liefert das Refdata-Repository an den Validator aus, etwa als http://refdata/
-  refdata:
-    image: nginx:alpine
-    restart: unless-stopped
+  # Bietet das Repository dem Validator als %REPOSITORIES/dmav@0.1.1 an
+  ilitools-wrapper:
+    # ...
     volumes:
-      - ./refdata:/usr/share/nginx/html:ro
+      - ./repositories:/repositories:ro
 ```
 
 | Einstellung | Bedeutung |
 | --- | --- |
-| Volume `/refdata` | Wurzel des Refdata-Repositorys, schreibbar. Dasselbe Verzeichnis liefert ein Webserver (etwa `nginx`) an den Validator aus. |
+| Volume `/refdata` | Wurzel des Refdata-Repositorys mit seiner `ilidata.xml`, schreibbar. Dasselbe Verzeichnis bietet der ilitools-wrapper dem Validator an. |
 | Datei `/config/sources.yaml` | Die Quellen, siehe unten. Nur lesend. |
 | `REFDATA_UPDATE_SCHEDULE` | Zeitplan in Cron-Syntax mit fünf Feldern, Standard `0 1 * * *` (täglich um 1 Uhr). |
 | `TZ` | Zeitzone des Zeitplans, etwa `Europe/Zurich`. Ohne Angabe gilt UTC. |
@@ -36,7 +35,7 @@ services:
 
 `ilidata.xml`, das Mapping und alle Dateien, die nicht in den Quellen stehen, fasst der Job nicht an. Sie legt der Betreiber in `/refdata` ab und pflegt sie selbst.
 
-Das Repository muss unter einer Adresse liegen, die der Validator erreicht. Läuft er als [ilitools-wrapper](https://github.com/geowerkstatt/ilitools-wrapper) im selben Compose-Netz, genügt ein Webserver dort (etwa `http://refdata/`).
+Den Validator erreicht das Repository am einfachsten direkt: Der [ilitools-wrapper](https://github.com/geowerkstatt/ilitools-wrapper) bietet jedes Verzeichnis unter seinem Mount `/repositories` als `%REPOSITORIES/<id>` in den Modell-Repositories an und liest es an Ort, ohne Download und ohne Cache ([geowerkstatt/geopilot#1075](https://github.com/geowerkstatt/geopilot/issues/1075)). Ein Webserver davor geht ebenfalls, dann gilt die Grenze durch den Cache weiter unten.
 
 Einen Lauf ausserhalb des Zeitplans startet `docker compose exec refdata-update refdata-update`.
 
@@ -56,9 +55,16 @@ Eine YAML-Liste, ein Eintrag pro Quelle. Jede Quelle wird pro Lauf einmal herunt
       destination: dmav_V1_1/refdata/OfficialIndexOfLocalities_V1_0.xtf
 ```
 
-- `destination` ist relativ zu `/refdata` und entspricht dem `<path>` in `ilidata.xml`. Ein Pfad mit führendem `/` oder mit `..` wird abgewiesen.
+- `destination` ist relativ zu `/refdata` und muss ein `<path>` sein, den die `ilidata.xml` in `/refdata` nennt: ilivalidator erreicht Referenzdaten nur über deren Id, eine Datei, die der Index nicht nennt, würde nie gelesen. Ein anderes Ziel wird nicht bezogen und gilt als Fehler, ebenso ein Pfad mit führendem `/` oder mit `..`. Ohne lesbare `ilidata.xml` in `/refdata` bricht der Lauf ab.
 - Nur `http` und `https` werden bezogen. Eine Quelle nennt entweder `destination` oder `extract`, nicht beides.
 - Eine Vorlage mit den Referenzdaten des [DMAV-Repositorys](https://github.com/geowerkstatt/DMAV_ilivalidator), die Bundesdatensätze mit ihren Quellen, liegt in [`sources.example.yaml`](sources.example.yaml). HFP1 fehlt darin bewusst: swisstopo liefert LFP1 und HFP1 bei jedem Export mit derselben Basket-Id, und ilivalidator lädt dann nicht beide ("BID ... already exists"). Bis das mit der Quelle geklärt ist, bleibt die HFP1-Datei des DMAV-Repositorys stehen ([geowerkstatt/geopilot#1030](https://github.com/geowerkstatt/geopilot/issues/1030)).
+
+Eine neue Quelle braucht ausser ihrem Eintrag hier:
+
+1. einen Eintrag in der `ilidata.xml` mit einer Id und dem Pfad, den die Quelle als `destination` nennt;
+2. ein Modell der Daten, das der Validator über seine Modell-Repositories findet: aus einem öffentlichen Repository oder als `.ili` im Repository samt Eintrag in dessen `ilimodels.xml`. Die Daten selbst stehen dort nicht;
+3. einen Eintrag im Mapping für jeden Scope, der die Daten braucht, mit `ilidata:<Id>`;
+4. keine eingecheckte oder mitgelieferte Kopie der Datei: Der Job würde sie überschreiben, jede Datei hat genau eine Herkunft.
 
 ## Verhalten bei Fehlern
 
@@ -70,7 +76,9 @@ Die Aktualisierung ist pro Datei atomar, nicht über alle Dateien zusammen: Eine
 
 ## Grenze: Cache des Validators
 
-ili2c hält Dateien aus einem Repository im Cache (Index 24 Stunden, Datensätze wie das Mapping 12 Stunden). Dateien in einem Unterordner, also die Referenzdaten unter `refdata/`, liest ili2c heute nie aus dem Cache ([claeis/ili2c#165](https://github.com/claeis/ili2c/issues/165)), darum prüft jeder Lauf gegen den neusten Stand. Eine neue Id in `ilidata.xml` oder im Mapping findet ilivalidator dagegen erst, wenn der Cache abgelaufen ist. Sobald der ilitools-wrapper das Zurücksetzen seines Caches anbietet ([geowerkstatt/geopilot#1043](https://github.com/geowerkstatt/geopilot/issues/1043)), ruft der Job es nach einem Lauf auf.
+Bietet der ilitools-wrapper das Repository aus einem Verzeichnis an, gibt es diese Grenze nicht: ilivalidator liest die Dateien an Ort, was der Job ersetzt, gilt ab der nächsten Validierung.
+
+Kommt das Repository dagegen über eine URL, hält ili2c Dateien daraus im Cache (Index 24 Stunden, Datensätze wie das Mapping 12 Stunden). Dateien in einem Unterordner, also die Referenzdaten unter `refdata/`, liest ili2c heute nie aus dem Cache ([claeis/ili2c#165](https://github.com/claeis/ili2c/issues/165)), darum prüft jeder Lauf gegen den neusten Stand. Eine neue Id in `ilidata.xml` oder im Mapping findet ilivalidator dagegen erst, wenn der Cache abgelaufen ist; ein Zurücksetzen des Caches bietet der Wrapper nicht an ([geowerkstatt/geopilot#1043](https://github.com/geowerkstatt/geopilot/issues/1043)).
 
 ## Versionen
 
