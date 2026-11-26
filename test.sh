@@ -130,6 +130,17 @@ REFDATA_SOURCES="$work/good.yaml" REFDATA_ROOT="$work/bare" REFDATA_STAMP="$work
 [ "$status" -eq 1 ] || fail "a root without ilidata.xml: expected exit code 1, got $status"
 [ ! -e "$work/bare/a/replaced.xtf" ] || fail "a root without ilidata.xml received a/replaced.xtf"
 
+# A job that fails once: refdata-run must call it a second time and then stop.
+printf '#!/bin/sh\necho x >> %s\n[ "$(wc -l < %s)" -ge 2 ]\n' "$work/flaky.count" "$work/flaky.count" > "$work/flaky"
+chmod +x "$work/flaky"
+REFDATA_UPDATE_BIN="$work/flaky" REFDATA_RETRY_DELAY_SECONDS=0 refdata-run > /dev/null ||
+  fail "refdata-run did not succeed on the retry"
+attempts=$(wc -l < "$work/flaky.count")
+[ "$attempts" -eq 2 ] || fail "refdata-run: expected 2 attempts, got $attempts"
+
+echo '0 1 * * * /usr/local/bin/refdata-run' > "$work/crontab"
+supercronic -test "$work/crontab" > /dev/null 2>&1 || fail "supercronic rejected the default crontab"
+
 if [ "$failures" -gt 0 ]; then
   echo "refdata-update test: $failures failure(s)"
   exit 1
