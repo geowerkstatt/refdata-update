@@ -11,8 +11,8 @@ set -u
 # Overridable so test.sh can run against its own directories.
 sources=${REFDATA_SOURCES:-/config/sources.yaml}
 root=${REFDATA_ROOT:-/refdata}
-# Touched after a run without failures; the HEALTHCHECK of the image reports its age.
-stamp=${REFDATA_STAMP:-/var/lib/refdata-update/last-success}
+# Touched after a run without failures; the health check reports its age.
+stamp=${REFDATA_STAMP:-/tmp/refdata-update/last-success}
 failed=0
 
 log() {

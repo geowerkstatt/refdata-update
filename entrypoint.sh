@@ -3,10 +3,11 @@
 set -eu
 
 schedule=${REFDATA_UPDATE_SCHEDULE:-0 1 * * *}
-echo "$schedule /usr/local/bin/refdata-update > /proc/1/fd/1 2>&1" > /etc/crontabs/root
+crontab=/tmp/refdata-update.crontab
+echo "$schedule /usr/local/bin/refdata-run" > "$crontab"
 echo "refdata-update: scheduled at '$schedule' (TZ ${TZ:-UTC})"
 
 # A failed source is logged and keeps its last state; it must not stop the schedule from starting.
-/usr/local/bin/refdata-update || true
+/usr/local/bin/refdata-run || true
 
-exec crond -f -d 8
+exec supercronic "$crontab"
